@@ -1,17 +1,26 @@
+{-# LANGUAGE Arrows #-}
+
 module Main where
 
-import           Control.Applicative
+import           Control.Applicative ((<$>), (<*>))
+import           Control.Arrow ((>>>), arr)
 import           Control.Concurrent (threadDelay)
-import           Control.Concurrent.Async (async)
-import           Control.Concurrent.STM (retry)
+import           Control.Concurrent.Async (async, link)
+import           Control.Concurrent.STM (newTVarIO, readTVar, writeTVar, retry)
 import qualified Control.Foldl as L
-import           Control.Monad (forever, unless)
+import           Control.Monad (when, unless)
+import           Control.Monad.IO.Class (MonadIO(liftIO))
+import qualified Control.Monad.Trans.State.Strict as S
+import           Control.Monad.Trans.Class (lift)
+import           Data.Monoid ((<>))
 import           Data.Random.Normal (mkNormals)
 import qualified Data.Text as T
 
 import qualified Network.WebSockets as WS
 
-import           Pipes
+import           Pipes ((>->), (~>), for, (>~), await, yield, runEffect, each)
+import           Pipes.Arrow (Edge(Edge, unEdge))
+import           Pipes.Core (push)
 import           Pipes.Concurrent
 import qualified Pipes.Prelude as P
 
@@ -29,76 +38,71 @@ addr :: String
 addr = "0.0.0.0"
 
 -- data types
-type Stream = String
-
-data Button = Go
-            | Stop
-            | Quit
-            deriving (Show, Eq)
-
-data Param = Delay   Double
-           | MaxTake Int
-           | Start   Double
-           | Drift   Double
-           | Sigma   Double
-           | Dt      Double
-           | Ema1    Double
-           | Ema2    Double
-           deriving (Show, Eq)
+-- TODO: UNPACK stuff
+data Param
+    = Delay   Double
+    | MaxTake Int
+    | Start   Double
+    | Drift   Double
+    | Sigma   Double
+    | Dt      Double
+    | Ema1    Double
+    | Ema2    Double
+    deriving (Show)
 
 data Params = Params
-              { delay   :: Double
-              , maxTake :: Int
-              , start   :: Double
-              , drift   :: Double
-              , sigma   :: Double
-              , dt      :: Double
-              , ema1    :: Double
-              , ema2    :: Double
-              } deriving Show
+    { delay   :: Double
+    , maxTake :: Int
+    , start   :: Double
+    , drift   :: Double
+    , sigma   :: Double
+    , dt      :: Double
+    , ema1    :: Double
+    , ema2    :: Double
+    } deriving (Show)
 
 defaultParams :: Params
 defaultParams = Params
-	      { delay   = 1.0  -- delay in seconds
-	      , maxTake = 1000 -- maximum number of stream elements
-              , start   = 0    -- random walk start
-              , drift   = 0    -- random walk drift
-              , sigma   = 1    -- volatility
-              , dt      = 1    -- time grain
-              , ema1    = 0    -- ema parameter (0=latest, 1=average)
-              , ema2    = 0.5  -- ema parameter
-              }
+    { delay   = 1.0  -- delay in seconds
+    , maxTake = 1000 -- maximum number of stream elements
+    , start   = 0    -- random walk start
+    , drift   = 0    -- random walk drift
+    , sigma   = 1    -- volatility
+    , dt      = 1    -- time grain
+    , ema1    = 0    -- ema parameter (0=latest, 1=average)
+    , ema2    = 0.5  -- ema parameter
+    }
 
-data Message = Button Button
-             | Param Param
-             deriving (Show, Eq)
+data ButtonIn = Quit | Stop | Go deriving (Show)
 
-makeMessage :: Stream -> Message
-makeMessage "Go"   = Button Go
-makeMessage "Stop" = Button Stop
-makeMessage "Quit" = Button Quit
-makeMessage x      = case words x of
-    ["Delay",xs]   -> Param $ Delay   $ read xs
-    ["MaxTake",xs] -> Param $ MaxTake $ read xs
-    ["Start",xs]   -> Param $ Start   $ read xs
-    ["Drift",xs]   -> Param $ Drift   $ read xs
-    ["Sigma",xs]   -> Param $ Sigma   $ read xs
-    ["Dt",xs]      -> Param $ Dt      $ read xs
-    ["Ema1",xs]    -> Param $ Ema1    $ read xs
-    ["Ema2",xs]    -> Param $ Ema2    $ read xs
+data EventIn = Data Double | ButtonIn ButtonIn | Param Param deriving (Show)
 
+data EventOut = Set Double | UnSet | Stream String deriving (Show)
+
+-- Controllers and Views
 help :: IO ()
-help = putStrLn "(g)o (s)top (q)uit (d)elay (0)start (1)drift (2)sigma (3)dt 4(ema1) 5(ema2)"
+help = putStrLn $ unwords
+    [ "(g)o"
+    , "(s)top"
+    , "(q)uit"
+    , "(d)elay"
+    , "(0)start"
+    , "(1)drift"
+    , "(2)sigma"
+    , "(3)dt"
+    , "(4)ema1"
+    , "(5)ema2"
+    ]
 
-stdinMessage :: IO Message
-stdinMessage = loop
+stdinEvent :: IO EventIn
+stdinEvent = loop
   where
     loop = do
         command <- getLine
         case command of
-            "q" -> return $ Button Quit
-            "s" -> return $ Button Stop
-            "g" -> return $ Button Go
+            "q"      -> return $ ButtonIn Quit
+            "s"      -> return $ ButtonIn Stop
+            "g"      -> return $ ButtonIn Go
             ('d':xs) -> return $ Param $ Delay   $ read xs
             ('m':xs) -> return $ Param $ MaxTake $ read xs
             ('0':xs) -> return $ Param $ Start   $ read xs
@@ -107,150 +111,183 @@ stdinMessage = loop
             ('3':xs) -> return $ Param $ Dt      $ read xs
             ('4':xs) -> return $ Param $ Ema1    $ read xs
             ('5':xs) -> return $ Param $ Ema2    $ read xs
-            _ -> do
+            _         -> do
                 help
                 loop
 
-updateParams :: Input Params -> Output Params -> Consumer Param IO ()
-updateParams ips ops = forever $ do
-    p <- await
-    Just ps <- liftIO $ atomically $ recv ips
-    -- lift $ print ps
-    case p of
-        Delay   p' -> runEffect $
-                     yield (ps{ delay = p' }) >->
-                     toOutput ops
-        MaxTake p' -> runEffect $
-                     yield (ps{ maxTake = p' }) >->
-                     toOutput ops
-        Start   p' -> runEffect $
-                     yield (ps{ start = p' }) >->
-                     toOutput ops
-        Drift   p' -> runEffect $
-                     yield (ps{ drift = p' }) >->
-                     toOutput ops
-        Sigma   p' -> runEffect $
-                     yield (ps{ sigma = p' }) >->
-                     toOutput ops
-        Dt      p' -> runEffect $
-                     yield (ps{ dt = p' }) >->
-                     toOutput ops
-        Ema1    p' -> runEffect $
-                     yield (ps{ ema1 = p' }) >->
-                     toOutput ops
-        Ema2    p' -> runEffect $
-                     yield (ps{ ema2 = p' }) >->
-                     toOutput ops
-    return ()
+user :: IO (Input EventIn)
+user = do
+    (om, im) <- spawn Unbounded
+    a <- async $ runEffect $ lift stdinEvent >~ toOutput om
+    link a
+    return im
 
+makeEvent :: String -> EventIn
+makeEvent "Go"   = ButtonIn Go
+makeEvent "Stop" = ButtonIn Stop
+makeEvent "Quit" = ButtonIn Quit
+makeEvent x      = case words x of
+    ["Delay"  , xs] -> Param $ Delay   $ read xs
+    ["MaxTake", xs] -> Param $ MaxTake $ read xs
+    ["Start"  , xs] -> Param $ Start   $ read xs
+    ["Drift"  , xs] -> Param $ Drift   $ read xs
+    ["Sigma"  , xs] -> Param $ Sigma   $ read xs
+    ["Dt"     , xs] -> Param $ Dt      $ read xs
+    ["Ema1"   , xs] -> Param $ Ema1    $ read xs
+    ["Ema2"   , xs] -> Param $ Ema2    $ read xs
+    _               -> ButtonIn Stop  -- Why not?
 
-splitMessage :: Output Button
-             -> Input Params
-             -> Output Params
-             -> Consumer Message IO ()
-splitMessage ob ips ops = forever $ do
-    k <- await
-    case k of
-        Button b -> runEffect $ yield b >-> toOutput ob
-        Param p  -> lift $ runEffect $ yield p >-> updateParams ips ops
-    return ()
+wsEvent :: WS.WebSockets WS.Hybi00 EventIn
+wsEvent = do
+    command <- WS.receiveData
+    liftIO $ putStrLn $ "received a command: " ++ T.unpack command
+    WS.sendTextData $ T.pack $ "server received event: " ++ T.unpack command
+    return $ makeEvent $ T.unpack command
 
--- who doesn't hate typing liftIO?
-logger :: (MonadIO m) => String -> m ()
-logger = liftIO . putStrLn
+websocket :: IO (Input EventIn)
+websocket = do
+    (om, im) <- spawn Unbounded
+    a <- async $ WS.runServer addr inPort $ \rq -> do
+        WS.acceptRequest rq
+        liftIO $ putStrLn $ "accepted incoming request"
+        WS.sendTextData $ T.pack "server accepted incoming connection"
+        runEffect $ lift wsEvent >~ toOutput om
+    link a
+    return im
 
--- websocket server for commands
-serveFrom :: Output Message -> IO ()
-serveFrom o = WS.runServer addr inPort $ fromWs o
+responses :: IO (Output EventOut)
+responses = do
+    (os, is) <- spawn Unbounded
+    let m :: WS.Request -> WS.WebSockets WS.Hybi10 ()
+        m rq = do
+            WS.acceptRequest rq
+            liftIO $ putStrLn $ "accepted stream request"
+            runEffect $ for (fromInput is) (lift . WS.sendTextData . T.pack)
+    a <- async $ WS.runServer addr outPort m
+    link a
+    return $ Output $ \e -> do
+        case e of
+            Stream str -> send os str
+            _          -> return True
 
--- accept connection request and pipe to Output Message
-fromWs :: Output Message
-       -> WS.Request
-       -> WS.WebSockets WS.Hybi00 ()
-fromWs o rq = do
-    WS.acceptRequest rq
-    logger "accepted incoming request"
-    WS.sendTextData $ T.pack "server accepted incoming connection"
-    runEffect $ wsMessage >-> hoist liftIO (toOutput o)
+-- The input generates ticks and the output lets you Set or UnSet ticks
+ticks :: IO (Input (), Output EventOut)
+ticks = do
+    (oTick, iTick) <- spawn Unbounded
+    tvar   <- newTVarIO Nothing
+    let pause = do
+            d <- atomically $ do
+                x <- readTVar tvar
+                case x of
+                    Nothing -> retry
+                    Just d  -> return d
+            threadDelay $ truncate $ 1000000 * d
+    a <- async $ runEffect $ lift pause >~ toOutput oTick
+    link a
+    let oChange = Output $ \e -> do
+            case e of
+                Set d -> writeTVar tvar (Just d)
+                UnSet -> writeTVar tvar  Nothing
+                _    -> return ()
+            return True
+    return (iTick, oChange)
 
-wsMessage :: Producer Message (WS.WebSockets WS.Hybi00) ()
-wsMessage = forever $ do
-    command <- lift WS.receiveData
-    lift $ logger $ "received a command: " ++ T.unpack command
-    lift $ WS.sendTextData $
-        T.pack $ "server received event: " ++ T.unpack command
-    yield $ makeMessage $ T.unpack command
+fromList :: [a] -> IO (Input a)
+fromList as = do
+    (o, i) <- spawn Single
+    a <- async $ runEffect $ each as >-> toOutput o
+    link a
+    return i
 
--- websocket server for stream
-serveTo :: Input Stream -> IO ()
-serveTo i = WS.runServer addr outPort $ toWs i
+-- All the pure logic.  Note that none of these use 'IO'
+updateParams :: (Monad m) => Param -> S.StateT Params m ()
+updateParams p = do
+    ps <- S.get
+    let ps' = case p of
+            Delay   p' -> ps { delay   = p' }
+            MaxTake p' -> ps { maxTake = p' }
+            Start   p' -> ps { start   = p' }
+            Drift   p' -> ps { drift   = p' }
+            Sigma   p' -> ps { sigma   = p' }
+            Dt      p' -> ps { dt      = p' }
+            Ema1    p' -> ps { ema1    = p' }
+            Ema2    p' -> ps { ema2    = p' }
+    S.put ps'
 
--- emitter stream to websocket
-toWs :: Input Stream
-     -> WS.Request
-     -> WS.WebSockets WS.Hybi00 ()
-toWs i rq = do
-    WS.acceptRequest rq
-    logger "accepted stream request"
-    runEffect $ hoist liftIO (fromInput i) >-> wsSend
-
--- send text to ws
-wsSend :: Consumer Stream (WS.WebSockets WS.Hybi00) ()
-wsSend = forever $ do
-    s <- await
-    lift $ WS.sendTextData $
-        T.pack s
-
--- button handling
--- Input + retry to prevent spinning
-checkButton :: Input Button -> Pipe a a IO ()
-checkButton i = do
-    b <- liftIO $ atomically $ do
-        b' <- recv i
-        case b' of
-            Just Stop -> retry
-            _ -> return b'
-    case b of
-        Just Quit -> return ()
-        _         -> await >>= yield >> checkButton i
-
--- pipes with effectful parameters
-get :: Input Params -> IO Params
-get i = do
-    Just ps <- liftIO $ atomically $ recv i
-    return ps
-
-delayer :: Input Params -> Pipe a a IO ()
-delayer i = forever $ do
-    a <- await
-    ps <- lift $ get i
-    lift $ threadDelay $ floor $ 1000000 * delay ps
-    yield a
-
-takeMax :: Input Params -> Pipe a a IO ()
-takeMax i = takeLoop 0
+takeMax :: (Monad m) => Edge (S.StateT Params m) () a a
+takeMax = Edge (takeLoop 0)
   where
-    takeLoop count = do
-        a <- await
-        ps <- lift $ get i
-        unless (count >= maxTake ps) $ do
+    takeLoop count a = do
+        m <- lift $ S.gets maxTake
+        unless (count >= m) $ do
             yield a
-            takeLoop $ count + 1
+            a2 <- await
+            takeLoop (count + 1) a2
 
 -- turns a random stream into a random walk stream
-walker :: Input Params -> Output Params -> Pipe Double Double IO ()
-walker i o = forever $ do
-    a <- await
-    ps <- lift $ get i
+walker :: (Monad m) => Edge (S.StateT Params m) () Double Double
+walker = Edge $ push ~> \a -> do
+    ps <- lift S.get
     let st = start ps + drift ps * dt ps + sigma ps * sqrt (dt ps) * a
+    lift $ updateParams (Start st)
     yield st
-    lift $ runEffect $ yield (Start st) >-> updateParams i o
+
+scan :: (Monad m) => Edge (S.StateT Params m) r Double (Double, Double)
+scan = Edge $ \a -> do
+    ps <- lift S.get
+    case (,) <$> ema (ema1 ps) <*> ema (ema2 ps) of
+        L.Fold step begin done -> push a >-> P.scan step begin done
+
+dataHandler :: (Monad m) => Edge (S.StateT Params m) () Double EventOut
+dataHandler =
+        walker
+    >>> takeMax
+    >>> scan
+    >>> arr (Stream . show)
+
+buttonHandler :: (Monad m) => Edge (S.StateT Params m) () ButtonIn EventOut
+buttonHandler = Edge $ push ~> \b -> case b of
+    Quit -> return ()
+    Stop -> yield UnSet
+    Go   -> do
+        ps <- lift S.get
+        yield $ Set (delay ps)
+    
+paramHandler :: (Monad m) => Edge (S.StateT Params m) () Param x
+paramHandler = Edge $ push ~> (lift . updateParams)
+
+total :: (Monad m) => Edge (S.StateT Params m) () EventIn EventOut
+total = proc e -> do
+    case e of
+        Data x     -> dataHandler   -< x
+        ButtonIn b -> buttonHandler -< b
+        Param    p -> paramHandler  -< p
+    
+main :: IO ()
+main = do
+    -- Initialize controllers and views
+    inWeb  <- websocket
+    inCmd  <- user
+    outWeb <- responses
+    (inTick, outChange) <- ticks
+    randomValues <- fromList (mkNormals seed)
+    -- Space the random values according to the ticks
+    let inData= (\_ a -> Data a) <$> inTick <*> randomValues
+
+    -- 'totalPipe' is the pure kernel of business logic
+    let totalPipe = await >>= unEdge total
+
+    -- Go!
+    (`S.evalStateT` defaultParams) $ runEffect $
+            fromInput (inWeb <> inCmd <> inData)
+        >-> totalPipe
+        >-> toOutput (outWeb <> outChange)
 
 -- exponential moving average
 data Ema = Ema
-       { numerator   :: {-# UNPACK #-} !Double
-       , denominator :: {-# UNPACK #-} !Double
-       }
+   { numerator   :: {-# UNPACK #-} !Double
+   , denominator :: {-# UNPACK #-} !Double
+   }
 
 ema :: Double -> L.Fold Double Double
 ema alpha = L.Fold step (Ema 0 0) (\(Ema n d) -> n / d)
@@ -264,42 +301,3 @@ emaSq alpha = L.Fold step (Ema 0 0) (\(Ema n d) -> n / d)
 
 estd :: Double -> L.Fold Double Double
 estd alpha = (\s ss -> sqrt (ss - s**2)) <$> ema alpha <*> emaSq alpha
-
-scan :: Input Params -> Pipe Double (Double,Double) IO r
-scan ip = forever $ do
-    ps <- lift $ get ip
-    let f = (,) <$> ema (ema1 ps) <*> ema (ema2 ps)
-    case f of
-        (L.Fold step begin done) -> P.scan step begin done
-
-stream :: Input Params
-       -> Output Params
-       -> Input Button
-       -> Output Stream
-       -> IO ()
-stream ips ops ib os = runEffect $
-         each (mkNormals seed :: [Double])     >->
-         walker ips ops   >->
-         takeMax ips      >->
-         delayer ips      >->
-         checkButton ib   >->
-         scan ips         >->
-         P.tee P.print    >->
-         P.map show       >->
-         toOutput os
-
-
-pipe :: IO ()
-pipe = do
-    (om,im)   <- spawn Unbounded
-    (ob,ib)   <- spawn (Latest Stop)
-    (ops,ips) <- spawn (Latest defaultParams)
-    (os,is)   <- spawn Unbounded
-    _ <- async $ runEffect $ lift stdinMessage >~ toOutput om
-    _ <- async $ serveFrom om
-    _ <- async $ serveTo is
-    _ <- async $ runEffect $ fromInput im >-> splitMessage ob ips ops
-    stream ips ops ib os
-
-main :: IO ()
-main = pipe

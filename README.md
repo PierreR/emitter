@@ -1,5 +1,5 @@
-emitter
-=======
+emitter 0.1
+===========
 
 ## haskell pipes example
 
@@ -26,63 +26,36 @@ emitter-server
 
 ## the basics
 
-The emitter:
- - sets up a stream in a typically `pipe`sish fashion.
- - listens for stdin and browser controls (via a websocket).
- - sends the end result of a stream to the browser via websockets and charts the result using the js `rickshaw` library.
+The emitter is designed using Controller/Model/View (mvc) design ideas that are emerging from Gabe's brain bank:
+ - it sets up a core stream using pushed-based pipes and an `Arrow`s instance (model), avoiding IO monad usage.
+ - multiple incoming effects (controllers) are monoidal and kept separate using Input mailboxes via pipes-concurrency technology.
+ - multiple outgoing effects (views) are are also monoidal and pushed out using Output mailboxes.
+ 
+ The actual example usage:
+ - listens for stdin and browser effects (via javascript and websockets).
+ - sends the end result of a random-walk stream to stdout and the browser via websockets and charts the result using the js `rickshaw` library.
 
 ## design ideas
 
+### purity
+
+With complete separation of pure code from effects, the core stream (and any stream designed this way) is amenable to the full toolkit available to leverage haskell, like QuickCheck, criterion, GHC aggression, distribution etc etc.
+
+### effect monoids
+
+Effect sources and sinks can be easily plugged in with <> and such.  The emitter, for example, can be run using the terminal or the browser (or both at once, or pure code!) making debugging that much better.  
+
 ### websockets
 
-The emitter highjacks the haskell `websocket` library. Most of the websocket code is lifted straight from example code in that library with the exception of this line in `fromWs`:
-
-```
-runEffect $ wsMessage >-> hoist liftIO (toOutput o)
-```
-
-`hoist liftIO` lifts the `Output` mailbox containing messages in the `IO` monad to the websocket monad - `WS.WebSockets WS.Hybi00`.
+The emitter highjacks the haskell `websocket` library. Most of the websocket code is lifted straight from example code in that library.
 
 The very nice thing about web sockets is that it's a fully bi-directional socket system - no Ajax, no JSON and no callbacks required!
 
-### separable effects
+### horses-for-courses
 
-The parameters (`Param` and `Params`) and controllers (`Button`) are plumbed in as separable effects that can be modified mid-stream.
-
-As a result, the emitter-server can be run as a stand-alone executable using stdin and stdout as the controller and view, allowing for separate debugging and development of lovely haskell from icky stuff like javascript.
-
-### separable views
-
-`pipes`-style development allows the free mixing and matching of computational niceties and use of sugary-sweet front-ends like css/js/html5 and awesome chart packages like `rickshaw`.
+`pipes`-style development allows the free mixing and matching of computational niceties and use of sugary-sweet front-ends like css/js/html5 and awesome chart packages like `rickshaw` versus the ghetto of haskell GUI choices.
 
 ### ema
 
 Along the pipe, there is an experiment of using a monoidal exponential moving average calculation to smooth the random stream.
-
-### pipes-concurrent
-
-`spawn (Latest defaultParams)` is an example of using pipes-concurrent to hold state as an alternative to using MVar, TVar, StateT, IORef and all the others. 
-
-## looking forward
-
-### parameter boiler-plate
-Around half the code consists of boiler-plate surrounding the specification of various ways you can input, output and modify parameters.  Much of this can be abstracted away I'm sure.
-
-### arrows
-
-"Push-based pipes are also Arrows".  Once I work out what Arrows are and how pipes are arrows, much of the parameter and controller plumbing just might disappear.  
-
-### Controller/Model/View
-
-`emitter` has been crafted with half an eye on Gabriel's upcoming mvc package.  The end result could be a complete and accurate separation of all computations into pure haskell and controller/view effects.  Stay tuned.
-
-### javascript
-
-It would be nice to replace the basic and sucky javascript with something like fay.  Ditto for the html5 elements.
-
-## bugz
-
-- an initial tuple (NaN,NaN) seems to sneak in, probably before buttonCheck is set up to stop it.
-- ema1 and ema2 are not effectful, because scan initialises a pipe that then chugs away forever. It is unknown whether an effectful ema parameter is possible without destroying the monoidal nature of the computation.
-- start is also not effectful, probably because of a race condition between the various ways Latest Params can be modified.
 

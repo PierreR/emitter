@@ -8,7 +8,7 @@ import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async (async, link)
 import           Control.Concurrent.STM (newTVarIO, readTVar, writeTVar, retry)
 import qualified Control.Foldl as L
-import           Control.Monad (when, unless)
+import           Control.Monad (unless)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Control.Monad.Trans.State.Strict as S
 import           Control.Monad.Trans.Class (lift)
@@ -149,7 +149,7 @@ websocket = do
     (om, im) <- spawn Unbounded
     a <- async $ WS.runServer addr inPort $ \rq -> do
         WS.acceptRequest rq
-        liftIO $ putStrLn $ "accepted incoming request"
+        liftIO $ putStrLn "accepted incoming request"
         WS.sendTextData $ T.pack "server accepted incoming connection"
         runEffect $ lift wsEvent >~ toOutput om
     link a
@@ -161,11 +161,11 @@ responses = do
     let m :: WS.Request -> WS.WebSockets WS.Hybi10 ()
         m rq = do
             WS.acceptRequest rq
-            liftIO $ putStrLn $ "accepted stream request"
+            liftIO $ putStrLn "accepted stream request"
             runEffect $ for (fromInput is) (lift . WS.sendTextData . T.pack)
     a <- async $ WS.runServer addr outPort m
     link a
-    return $ Output $ \e -> do
+    return $ Output $ \e ->
         case e of
             Stream str -> send os str
             _          -> return True
@@ -252,17 +252,17 @@ buttonHandler = Edge $ push ~> \b -> case b of
     Go   -> do
         ps <- lift S.get
         yield $ Set (delay ps)
-    
+
 paramHandler :: (Monad m) => Edge (S.StateT Params m) () Param x
 paramHandler = Edge $ push ~> (lift . updateParams)
 
 total :: (Monad m) => Edge (S.StateT Params m) () EventIn EventOut
-total = proc e -> do
+total = proc e ->
     case e of
         Data x     -> dataHandler   -< x
         ButtonIn b -> buttonHandler -< b
         Param    p -> paramHandler  -< p
-    
+
 main :: IO ()
 main = do
     -- Initialize controllers and views

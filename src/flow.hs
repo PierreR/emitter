@@ -50,7 +50,7 @@ data Command = Quit | Stop | Go | Help deriving (Show)
 
 data EventIn = Data Double | Command Command | Param Param deriving (Show)
 
-data EventOut = Set Double | UnSet | ShowHelp | Stream String deriving (Show)
+data EventOut = Set Double | UnSet | Message String | Stream String deriving (Show)
 
 -- Controllers and Views
 help :: String
@@ -99,16 +99,12 @@ makeEvent x      = case words x of
     ["start"  , xs] -> Param $ Start   $ read xs
     _               -> Command Help
 
-terminalView :: IO (Output EventOut)
+terminalView :: IO (Output String)
 terminalView = do
     (os, is) <- spawn Unbounded
     a <- async $ runEffect $ fromInput is >-> P.print
     link a
-    return $ Output $ \e ->
-        case e of
-            Stream str -> send os str
-            ShowHelp   -> send os help
-            _          -> return True
+    return os
 
 -- The input generates ticks and the output lets you Set or UnSet ticks
 ticks :: IO (Input (), Output EventOut)
@@ -194,7 +190,7 @@ commandHandler = Edge $ push ~> \b -> case b of
     Go   -> do
         ps <- lift S.get
         yield $ Set (delay ps)
-    Help -> yield ShowHelp
+    Help -> yield $ Message help
 
 paramHandler :: (Monad m) => Edge (S.StateT Params m) () Param x
 paramHandler = Edge $ push ~> (lift . updateParams)
@@ -220,8 +216,14 @@ main = do
     -- 'totalPipe' is the pure kernel of business logic
     let totalPipe = runEdge total
 
+    -- output directing
+    let oEventOut = Output $ \e -> case e of
+            Stream str  -> send outTerminal str
+            Message str -> send outTerminal str
+            x           -> send outChange x
+
     -- Go!
     (`S.evalStateT` defaultParams) $ runEffect $
             fromInput (inCmd <> inData)
         >-> totalPipe
-        >-> toOutput (outTerminal <> outChange)
+        >-> toOutput oEventOut

@@ -1,0 +1,23 @@
+set 1.0
+stream 1.0
+stream 3.0
+stream 6.0
+stream 10.0
+stream 15.0
+stream 21.0
+stream 28.0
+stream 36.0
+unset
+stream 45.0
+set 0.2
+stream 55.0
+stream 66.0
+stream 78.0
+stream 91.0
+stream 105.0
+stream 120.0
+stream 136.0
+stream 153.0
+stream 171.0
+stream 190.0
+stream 210.0

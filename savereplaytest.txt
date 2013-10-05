@@ -1,0 +1,24 @@
+set 1.0
+stream 1.0
+stream 3.0
+stream 6.0
+stream 10.0
+stream 15.0
+stream 21.0
+unset
+stream 28.0
+set 3.0
+stream 108.0
+stream 117.0
+stream 127.0
+stream 138.0
+stream 150.0
+stream 163.0
+message go stop quit help delay maxtake start data
+stream 177.0
+stream 192.0
+stream 208.0
+stream 225.0
+stream 243.0
+stream 262.0
+stream 282.0

@@ -1,0 +1,78 @@
+
+* views
+
+
+Note that this requires that `View`s are groupable, too, and they are.  
+The basic idea is that `View` would be identical to `Output`, having the
+same `Monoid` instance that lets you combine multiple `View`s into a
+broadcast `View`.  In addition, it would also have the following
+`handles` function:
+
+     handles :: Prism a b -> View b -> View a
+
+The idea is that if the prism matches then the `View` handles that
+value, otherwise it discards it.  This `handles` function has the nice
+property that it defines a functor:
+
+     handles id = id
+
+     handles (f . g) = handles f . handles g
+
+So, for example, if your model output an `Either A B`:
+
+     totalModel :: Model X (Either A B)
+
+... and you had two `View`s, one for `A` and one for `B`:
+
+     v1 :: View A
+     v2 :: View B
+
+... then you could combine them into a single `View` for `Either A B` using:
+
+     handles _Left v1 <> handles _Right v2 :: View (Either A B)
+
+... and they would handle the `Model`s output.  Again, since the `Model`
+implements `ArrowChoice` you can also thread sub-components of `Either`s
+(or other arbitrary sum types) to ensure that they reach the right `View`.
+
+* arrows
+
+http://en.wikibooks.org/wiki/Haskell/Understanding_arrows
+
+The important point is that `Arrow`s are basically connectable directed
+acyclic graphs.
+
+The other cool thing about `Arrow`s is that if you turn on the `Arrows`
+language pragma you can built these graphs using "arrow notation":
+
+http://www.haskell.org/ghc/docs/6.12.3/html/users_guide/arrow-notation.html
+
+There is also `ArrowChoice` which combines things using `Either` instead of
+tuples, but it's still the same basic idea. You use `ArrowChoice` to thread
+different subsets of the stream to different components and GHC provides
+special syntax for that, too, so you can do it over arbitrary sum types
+instead of just `Either`.
+
+switch to push-based pipes, which have an `ArrowChoice` instance. Then you'd
+use the `(+++)` combinator from `Control.Arrow` to split which half of the
+input each `Consumer` operated on.
+
+* mvc
+
+- You have M effectful inputs (i.e. controllers) that you combine into a single controller
+- You have N effectful outputs (i.e. views) that you combine into a single view
+- You have a pure kernel of business logic (i.e. the model) that streams from your combined controller to your combined view
+
+Diagrammatically it looks something like this:
+
+     controller1 -                                           -> view1
+                  \                                         /
+     controller2 ---> controllerTotal -> model -> viewTotal---> view2
+                  /                                         \
+     controller3 -                                           -> view3
+
+                      \______ ______/   \__ __/   \___ ___/
+                             v             v          v
+                         Effectful        Pure    Effectful
+
+

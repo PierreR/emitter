@@ -21,7 +21,7 @@ import qualified Control.Monad.Trans.State.Strict as S
 import           Data.Monoid ((<>))
 
 import           Pipes
-import           Pipes.Arrow (Edge(Edge, unEdge))
+import           Edge (Edge(Edge), runEdge)
 import           Pipes.Core (push)
 import           Pipes.Concurrent
 import qualified Pipes.Prelude as P
@@ -68,12 +68,12 @@ help = unwords
 stdinEvent :: IO EventIn
 stdinEvent = liftM makeEvent getLine
 
-userInput :: IO (Input EventIn)
-userInput = do
-    (om, im) <- spawn Unbounded
-    a <- async $ runEffect $ lift stdinEvent >~ toOutput om
+makeInput :: IO a -> IO (Input a)
+makeInput p = do
+    (o, i) <- spawn Unbounded
+    a <- async $ runEffect $ lift p >~ toOutput o
     link a
-    return im
+    return i
 
 makeString :: EventIn -> String
 makeString (Command x) = case x of
@@ -139,6 +139,20 @@ fromList as = do
     link a
     return i
 
+fromProducer :: Producer a IO () -> IO (Input a)
+fromProducer p = do
+    (o, i) <- spawn Unbounded
+    a <- async $ runEffect $ p >-> toOutput o
+    link a
+    return i
+
+fromConsumer :: Consumer a IO () -> IO (Output a)
+fromConsumer p = do
+    (o, i) <- spawn Unbounded
+    a <- async $ runEffect $ fromInput i >-> p
+    link a
+    return o
+
 -- All the pure logic.  Note that none of these use 'IO'
 updateParams :: (Monad m) => Param -> S.StateT Params m ()
 updateParams p = do
@@ -195,7 +209,7 @@ total = proc e ->
 main :: IO ()
 main = do
     -- Initialize controllers and views
-    inCmd  <- userInput
+    inCmd  <- makeInput stdinEvent
     outTerminal <- terminalView
     (inTick, outChange) <- ticks
     values <- fromList [1..]
@@ -204,7 +218,7 @@ main = do
     let inData= (\_ a -> Data a) <$> inTick <*> values
 
     -- 'totalPipe' is the pure kernel of business logic
-    let totalPipe = await >>= unEdge total
+    let totalPipe = runEdge total
 
     -- Go!
     (`S.evalStateT` defaultParams) $ runEffect $

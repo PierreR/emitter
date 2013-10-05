@@ -25,7 +25,7 @@ import           Data.Monoid ((<>))
 import           Data.Random.Normal (mkNormals)
 
 import           Pipes
-import           Pipes.Arrow (Edge(Edge, unEdge))
+import           Edge (Edge(Edge), runEdge)
 import           Pipes.Core (push)
 import           Pipes.Concurrent
 import qualified Pipes.Prelude as P
@@ -255,7 +255,7 @@ main = do
     let inData= (\_ a -> Data a) <$> inTick <*> randomValues
 
     -- 'totalPipe' is the pure kernel of business logic
-    let totalPipe = await >>= unEdge total
+    let totalPipe = runEdge total
 
     -- Go!
     (`S.evalStateT` defaultParams) $ runEffect $

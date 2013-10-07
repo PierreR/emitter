@@ -4,9 +4,7 @@
 
 
 {-
-basic mvc/arrow logic applied to events
-saving input and output events
-canned test
+TODO: switch to Pipes.Binary
 -}
 
 module Event where
@@ -41,6 +39,7 @@ import qualified Data.ByteString.Lazy as L
 import Data.Binary
 import GHC.Generics (Generic)
 import Data.ByteString.Lazy.Internal (defaultChunkSize)
+import Pipes.Binary
 
 -- data types
 data Param

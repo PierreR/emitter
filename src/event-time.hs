@@ -36,16 +36,13 @@ import qualified Pipes.Parse      as PP
 import qualified Pipes.Prelude    as P
 import qualified Pipes.Safe       as PS
 
-import Data.Time.Calendar
-    ( Day(..) )
-import Data.Time.Clock
-    ( getCurrentTime, diffUTCTime, addUTCTime, UTCTime(..), secondsToDiffTime )
-import Data.Time.LocalTime (TimeOfDay(..))
-import Data.Time.Format
-    ( formatTime, parseTime )
-import System.Locale
-    ( defaultTimeLocale )
-
+import Data.Time.Clock ( getCurrentTime, diffUTCTime, UTCTime(..))
+import Data.Time.LocalTime
+import Data.Time.Format ( formatTime, parseTime )
+import System.Locale ( defaultTimeLocale )
+import Data.Fixed (Milli)
+-- import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Maybe (fromMaybe)
 
 -- data types
 data Param
@@ -141,6 +138,36 @@ ticks = do
             return True
     return (iTick, oChange)
 
+cannedEventIn :: Producer (Maybe UTCTime,EventIn) (PS.SafeT IO) ()
+                  -> IO (Input EventIn)
+cannedEventIn p = do
+    (o,iEvent) <- spawn Unbounded
+    a <- async $ PS.runSafeT $ initThenLoop o
+    link a
+    return iEvent
+  where
+    initThenLoop o = do
+        one <- next p
+        case one of
+            Left _ -> return ()
+            Right ((ts0,e),p') -> do
+                t0 <- lift getCurrentTime
+                runEffect $ yield e >-> toOutput o
+                loop p' o ts0 t0
+        return ()
+    loop p'' o' ts0 t0 = do
+        n <- next p''
+        case n of
+            Left _ -> return ()
+            Right ((ts',e'),p''') -> do
+                t' <- lift getCurrentTime
+                let delayTime = (-) <$>
+                            (diffUTCTime <$> ts' <*> ts0) <*>
+                            (Just $ diffUTCTime t'  t0)
+                lift $ threadDelay $ truncate $ 1000000 * fromMaybe 0 delayTime
+                runEffect $ yield e' >-> toOutput o'
+                loop p''' o' ts0 t0
+
 fromList :: [a] -> IO (Input a)
 fromList as = do
     (o, i) <- spawn Single
@@ -171,6 +198,24 @@ writeFile file = PS.bracket
 	  putStrLn $ C.concat ["{",C.pack file," closed}"])
     PB.toHandle
 
+takeLines :: Monad m => Producer ByteString m () -> Producer ByteString m ()
+takeLines = unlines' . PB.lines
+
+unlines' :: (Monad m)
+    => PP.FreeT (Producer ByteString m) m r
+    -> Producer ByteString m r
+unlines' = go
+  where
+    go f = do
+        x <- lift (PP.runFreeT f)
+        case x of
+            PP.Pure r -> return r
+            PP.Free p -> do
+                f' <- p
+                go f'
+
+
+-- encoding/decoding
 packEventIn :: (Monad m) => Pipe EventIn ByteString m r
 packEventIn = forever $ do
     s <- await
@@ -193,21 +238,31 @@ unpackEventOut = forever $ do
     -- lift $ putStrLn $ C.append "unpacked: " s
     yield $ makeEventOut $ C.takeWhile (/= '\n') s
 
-takeLines :: Monad m => Producer ByteString m () -> Producer ByteString m ()
-takeLines = unlines' . PB.lines
+-- add timestamp as a bytestring
 
-unlines' :: (Monad m)
-    => PP.FreeT (Producer ByteString m) m r
-    -> Producer ByteString m r
-unlines' = go
+picoToMilli :: forall a. RealFrac a => a -> Milli
+picoToMilli n = fromIntegral (round $ n * 1000 :: Integer) / 1000 :: Milli
+
+fTime :: UTCTime -> ByteString
+fTime t = C.pack $ f ++ p
   where
-    go f = do
-        x <- lift (PP.runFreeT f)
-        case x of
-            PP.Pure r -> return r
-            PP.Free p -> do
-                f' <- p
-                go f'
+    s = picoToMilli $ todSec $ timeToTimeOfDay $ utctDayTime t
+    f = formatTime defaultTimeLocale "%F %H:%M:%S." t
+    p = drop 2 $ show $ s - fromIntegral (floor s :: Integer)
+
+addTimeStamp :: Pipe ByteString ByteString IO ()
+addTimeStamp = forever $ do
+    s <- await
+    t <- lift getCurrentTime
+    yield $ C.intercalate (C.singleton ',') [fTime t,s]
+
+extractTSEventIn :: Pipe ByteString (Maybe UTCTime,EventIn) IO ()
+extractTSEventIn = forever $ do
+    s <- await
+    let [t,m] = C.splitWith (==',') s
+        t' = parseTime defaultTimeLocale "%F %H:%M:%S%Q" $ C.unpack t
+        m' = makeEventIn m
+    yield (t',m')
 
 -- All the pure logic.  Note that none of these use 'IO'
 -- EventIn
@@ -323,8 +378,10 @@ main = do
             Message str -> send outTerminal str
             x           -> send outChange x
 
-    let saveIn = P.tee (packEventIn >-> writeFile "saves/in.txt")
-    let saveOut = P.tee (packEventOut >-> writeFile "saves/out.txt")
+    let saveIn = P.tee (    packEventIn
+                        >-> unsafeHoist lift addTimeStamp
+                        >-> writeFile "saves/intime.txt")
+    let saveOut = P.tee (packEventOut >-> writeFile "saves/outtimed.txt")
 
     -- Go!
     PS.runSafeT $ (`S.evalStateT` defaultParams) $ runEffect $
@@ -336,8 +393,8 @@ main = do
 
 
 -- test routines
-replayIO :: IO ()
-replayIO = do
+replayIgnoreTime :: IO ()
+replayIgnoreTime = do
     -- Initialize controllers and views
     outTerminal <- terminalView
     (_, outChange) <- ticks
@@ -348,15 +405,47 @@ replayIO = do
             Message str -> send outTerminal str
             x           -> send outChange x
 
-    let loadIn =     takeLines (readFile "saves/replayin.txt")
-                 >-> unsafeHoist lift unpackEventIn
-        saveReplayOut = P.tee (packEventOut >-> writeFile "saves/replayout.txt")
+    let loadIn =     takeLines (readFile "saves/cannedtest.txt")
+                 >-> unsafeHoist lift extractTSEventIn
+                 >-> P.map snd
+        saveReplayOut = P.tee (packEventOut >-> writeFile "saves/cannedout.txt")
 
     -- Go!
     PS.runSafeT $ (`S.evalStateT` defaultParams) $ runEffect $
             unsafeHoist lift loadIn
         >-> runEdge eventHandler
         >-> unsafeHoist lift saveReplayOut
+        >-> toOutput oEventOut
+
+replayWithTime :: IO ()
+replayWithTime = do
+    -- Initialize controllers and views
+    -- inCmd  <- makeInput stdinEvent
+    outTerminal <- terminalView
+    -- (inTick, outChange) <- ticks
+
+    -- output directing
+    let oEventOut = Output $ \e -> case e of
+            Stream str  -> send outTerminal str
+            Message str -> send outTerminal str
+            _           -> return True -- send outChange x
+
+    let loadIn =     takeLines (readFile "cannedtest.txt")
+                 >-> unsafeHoist lift extractTSEventIn
+
+    inEvent <- cannedEventIn loadIn
+
+    let saveIn = P.tee (    packEventIn
+                        >-> unsafeHoist lift addTimeStamp
+                        >-> writeFile "saveintest.txt")
+    let saveOut = P.tee (packEventOut >-> writeFile "saveouttest.txt")
+
+    -- Go!
+    PS.runSafeT $ (`S.evalStateT` defaultParams) $ runEffect $
+            fromInput inEvent
+        >-> unsafeHoist lift saveIn
+        >-> runEdge eventHandler
+        >-> unsafeHoist lift saveOut
         >-> toOutput oEventOut
 
 replayPure :: [EventIn] -> [EventOut]

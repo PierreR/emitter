@@ -1,0 +1,12 @@
+StreamOut "1.0"
+StreamOut "3.0"
+StreamOut "6.0"
+StreamOut "10.0"
+StreamOut "15.0"
+SetPause True
+StreamOut "21.0"
+StreamOut "28.0"
+SetPause False
+StreamOut "8.0"
+StreamOut "17.0"
+StreamOut "27.0"

@@ -81,108 +81,108 @@ $(document).ready(function () {
     };
     $("#btnGo").click( function() {
         //alert("go clicked");
-        wsout.send('Go');
+        wsout.send('go');
         return false;
     });
     $("#btnStop").click( function() {
-        wsout.send('Stop');
+        wsout.send('stop');
         return false;
     });
     $("#btnQuit").click( function() {
-        wsout.send('Quit');
+        wsout.send('quit');
         return false;
     });
     $('#paramMaxTake').change(function () {
         var value = $('#paramMaxTake').val();
         //alert("maktake changed to "+value);
-        wsout.send('MaxTake ' + value);
+        wsout.send('rmaxstream ' + value);
         return false;
     });
     $('#paramDelay').change(function () {
         var value = $('#paramDelay').val();
         //alert("delay changed to "+value);
         document.getElementById('textDelay').value=value;
-        wsout.send('Delay ' + value);
+        wsout.send('rdelay ' + value);
     });
     $('#textDelay').change(function () {
         var value = $('#textDelay').val();
         //alert("delay changed to "+value);
         document.getElementById('paramDelay').value=value;
-        wsout.send('Delay ' + value);
+        wsout.send('rdelay ' + value);
     });
 
     $('#paramStart').change(function () {
         var value = $('#paramStart').val();
         //alert("delay changed to "+value);
         document.getElementById('textStart').value=value;
-        wsout.send('Start ' + value);
+        wsout.send('rtotal ' + value);
     });
     $('#textStart').change(function () {
         var value = $('#textStart').val();
         //alert("delay changed to "+value);
         document.getElementById('paramStart').value=value;
-        wsout.send('Start ' + value);
+        wsout.send('rtotal ' + value);
     });
 
     $('#paramDrift').change(function () {
         var value = $('#paramDrift').val();
         //alert("delay changed to "+value);
         document.getElementById('textDrift').value=value;
-        wsout.send('Drift ' + value);
+        wsout.send('drift ' + value);
     });
     $('#textDrift').change(function () {
         var value = $('#textDrift').val();
         //alert("delay changed to "+value);
         document.getElementById('paramDrift').value=value;
-        wsout.send('Drift ' + value);
+        wsout.send('drift ' + value);
     });
     $('#paramSigma').change(function () {
         var value = $('#paramSigma').val();
         //alert("delay changed to "+value);
         document.getElementById('textSigma').value=value;
-        wsout.send('Sigma ' + value);
+        wsout.send('sigma ' + value);
     });
     $('#textSigma').change(function () {
         var value = $('#textSigma').val();
         //alert("delay changed to "+value);
         document.getElementById('paramSigma').value=value;
-        wsout.send('Sigma ' + value);
+        wsout.send('sigma ' + value);
     });
     $('#paramDt').change(function () {
         var value = $('#paramDt').val();
         //alert("delay changed to "+value);
         document.getElementById('textDt').value=value;
-        wsout.send('Dt ' + value);
+        wsout.send('dt ' + value);
     });
     $('#textDt').change(function () {
         var value = $('#textDt').val();
         //alert("delay changed to "+value);
         document.getElementById('paramDt').value=value;
-        wsout.send('Dt ' + value);
+        wsout.send('dt ' + value);
     });
     $('#paramEma1').change(function () {
         var value = $('#paramEma1').val();
         //alert("delay changed to "+value);
         document.getElementById('textEma1').value=value;
-        wsout.send('Ema1 ' + value);
+        wsout.send('ema1 ' + value);
     });
     $('#textEma1').change(function () {
         var value = $('#textEma1').val();
         //alert("delay changed to "+value);
         document.getElementById('paramEma1').value=value;
-        wsout.send('Ema1 ' + value);
+        wsout.send('ema1 ' + value);
     });
     $('#paramEma2').change(function () {
         var value = $('#paramEma2').val();
         //alert("delay changed to "+value);
         document.getElementById('textEma2').value=value;
-        wsout.send('Ema2 ' + value);
+        wsout.send('ema2 ' + value);
     });
     $('#textEma2').change(function () {
         var value = $('#textEma2').val();
         //alert("delay changed to "+value);
         document.getElementById('paramEma2').value=value;
-        wsout.send('Ema2 ' + value);
+        wsout.send('ema2 ' + value);
     });
 
 });

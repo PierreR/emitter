@@ -1,0 +1,25 @@
+TEvent {_time = Just 2013-10-12 23:39:06.097032 UTC, _event = StreamIn 1.0}
+TEvent {_time = Just 2013-10-12 23:39:07.098058 UTC, _event = StreamIn 2.0}
+TEvent {_time = Just 2013-10-12 23:39:08.098336 UTC, _event = StreamIn 3.0}
+TEvent {_time = Just 2013-10-12 23:39:09.098788 UTC, _event = StreamIn 4.0}
+TEvent {_time = Just 2013-10-12 23:39:09.125742 UTC, _event = Stop}
+TEvent {_time = Just 2013-10-12 23:39:10.099351 UTC, _event = StreamIn 5.0}
+TEvent {_time = Just 2013-10-12 23:39:11.099632 UTC, _event = StreamIn 6.0}
+TEvent {_time = Just 2013-10-12 23:39:14.134069 UTC, _event = Go}
+TEvent {_time = Just 2013-10-12 23:39:14.13443 UTC, _event = StreamIn 7.0}
+TEvent {_time = Just 2013-10-12 23:39:14.134821 UTC, _event = StreamIn 8.0}
+TEvent {_time = Just 2013-10-12 23:39:15.135873 UTC, _event = StreamIn 9.0}
+TEvent {_time = Just 2013-10-12 23:39:16.136923 UTC, _event = StreamIn 10.0}
+TEvent {_time = Just 2013-10-12 23:39:17.138035 UTC, _event = StreamIn 11.0}
+TEvent {_time = Just 2013-10-12 23:39:18.138591 UTC, _event = StreamIn 12.0}
+TEvent {_time = Just 2013-10-12 23:39:19.139433 UTC, _event = StreamIn 13.0}
+TEvent {_time = Just 2013-10-12 23:39:20.139585 UTC, _event = StreamIn 14.0}
+TEvent {_time = Just 2013-10-12 23:39:21.139803 UTC, _event = StreamIn 15.0}
+TEvent {_time = Just 2013-10-12 23:39:22.140681 UTC, _event = StreamIn 16.0}
+TEvent {_time = Just 2013-10-12 23:39:23.141697 UTC, _event = StreamIn 17.0}
+TEvent {_time = Just 2013-10-12 23:39:24.142607 UTC, _event = StreamIn 18.0}
+TEvent {_time = Just 2013-10-12 23:39:24.924374 UTC, _event = Stop}
+TEvent {_time = Just 2013-10-12 23:39:25.143633 UTC, _event = StreamIn 19.0}
+TEvent {_time = Just 2013-10-12 23:39:26.144674 UTC, _event = StreamIn 20.0}
+TEvent {_time = Just 2013-10-12 23:39:28.859603 UTC, _event = Go}
+TEvent {_time = Just 2013-10-12 23:39:28.85992 UTC, _event = StreamIn 21.0}

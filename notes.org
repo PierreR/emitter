@@ -1,0 +1,84 @@
+** feed component development
+:PROPERTIES:
+:tangle:   other/emitter.dot
+:END:
+
+#+begin_src dot :file other/emitter.png :cmdline -Kdot -Tpng :exports both
+  digraph G {
+          node [label="\N"];
+          node [style=filled, color="#1f3950",fontcolor="#eeeeee",shape=box];
+
+          stream -> inbox;
+          
+          subgraph cluster_pure {
+                  graph [label="pure",
+                          color="#909090"];
+                  node [style=filled];
+                  eventHandler;
+                  streamer;
+                  command;
+                  state;
+                  
+                  
+                  eventHandler -> streamer [color="#aaaaaa",dir=forward];
+                  eventHandler -> command [color="#aaaaaa",dir=forward];
+                  eventHandler -> state [color="#aaaaaa",dir=both];                  
+          }
+
+          subgraph cluster_event_inbox {
+                  graph [label="inbox",
+                          color="#909090"];
+                  node [style=filled];
+                  inbox;
+                  save_event;
+                  inbox -> save_event;
+          }
+
+          subgraph cluster_event_outbox {
+                  graph [label="outbox",
+                          color="#909090"];
+                  node [style=filled];
+                  outbox;
+                  save_out_event;
+                  outbox -> save_out_event;
+          }
+
+
+          subgraph cluster_terminal {
+                  graph [label="view/control",
+                         color="#909090"];
+                  terminal;
+                  websocket;
+                  
+          }
+
+          inbox -> eventHandler;
+          terminal -> inbox;
+          websocket -> inbox;
+          outbox -> terminal;
+          outbox -> websocket;
+
+
+          subgraph cluster_effects {
+                  graph [label="effects",
+                         color="#909090"];
+                  delay;
+                  pause;
+          }
+
+          command -> outbox;
+          streamer -> outbox;
+          state -> outbox;
+          outbox -> delay;
+          outbox -> pause;
+          delay -> stream;
+          pause -> stream;
+          
+          
+
+  }
+#+end_src
+
+#+results:
+[[file:other/emitter.png]]
+
